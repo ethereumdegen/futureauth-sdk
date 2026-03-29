@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "OTP authentication SDK — local session management with FutureAuth OTP delivery"
 license = "MIT"
+repository = "https://github.com/ethereumdegen/futureauth-sdk"
+keywords = ["auth", "otp", "axum", "authentication"]
+categories = ["authentication", "web-programming"]
 
 [features]
 default = ["axum-integration"]
