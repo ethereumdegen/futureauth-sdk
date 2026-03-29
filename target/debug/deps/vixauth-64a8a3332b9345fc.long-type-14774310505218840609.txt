@@ -1,1 +1,0 @@
-fn(std::option::Option<AuthSession>) -> impl Future<Output = impl IntoResponse> {get_session}: Handler<_, _>
