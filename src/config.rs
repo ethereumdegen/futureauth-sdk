@@ -10,7 +10,7 @@ pub struct FutureAuthConfig {
     pub project_name: String,
     /// Session duration (default: 30 days)
     pub session_ttl: Duration,
-    /// OTP code duration (default: 10 minutes)
+    /// OTP code duration (default: 2 minutes)
     pub otp_ttl: Duration,
     /// OTP code length (default: 6)
     pub otp_length: usize,
@@ -25,7 +25,7 @@ impl Default for FutureAuthConfig {
             secret_key: String::new(),
             project_name: String::new(),
             session_ttl: Duration::from_secs(30 * 24 * 60 * 60),
-            otp_ttl: Duration::from_secs(10 * 60),
+            otp_ttl: Duration::from_secs(2 * 60),
             otp_length: 6,
             cookie_name: "futureauth_session".into(),
         }

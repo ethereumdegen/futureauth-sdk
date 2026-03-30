@@ -140,8 +140,9 @@ impl FutureAuth {
 }
 
 fn generate_otp(length: usize) -> String {
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
     let mut rng = rand::thread_rng();
     (0..length)
-        .map(|_| rng.gen_range(0..10).to_string())
+        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
         .collect()
 }
