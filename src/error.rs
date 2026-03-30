@@ -14,6 +14,9 @@ pub enum FutureAuthError {
     #[error("OTP expired")]
     OtpExpired,
 
+    #[error("OTP max attempts exceeded")]
+    OtpMaxAttempts,
+
     #[error("OTP delivery failed: {0}")]
     OtpDeliveryFailed(String),
 

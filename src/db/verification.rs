@@ -35,19 +35,21 @@ pub async fn create(
     Ok(v)
 }
 
+/// Maximum number of failed verification attempts before the code is invalidated.
+const MAX_ATTEMPTS: i32 = 4;
+
 pub async fn verify(pool: &PgPool, identifier: &str, code: &str) -> Result<()> {
+    // Look up the verification record by identifier (not code) so we can track attempts
     let row = sqlx::query_as::<_, Verification>(
-        "SELECT * FROM verification WHERE identifier = $1 AND code = $2",
+        "SELECT * FROM verification WHERE identifier = $1",
     )
     .bind(identifier)
-    .bind(code)
     .fetch_optional(pool)
     .await?;
 
     let v = row.ok_or(FutureAuthError::InvalidOtp)?;
 
     if v.expires_at < Utc::now() {
-        // Clean up expired code
         sqlx::query("DELETE FROM verification WHERE id = $1")
             .bind(&v.id)
             .execute(pool)
@@ -55,7 +57,26 @@ pub async fn verify(pool: &PgPool, identifier: &str, code: &str) -> Result<()> {
         return Err(FutureAuthError::OtpExpired);
     }
 
-    // Delete the used code
+    if v.code != code {
+        let new_attempts = v.attempts + 1;
+        if new_attempts >= MAX_ATTEMPTS {
+            // Too many failed attempts — invalidate the code entirely
+            sqlx::query("DELETE FROM verification WHERE id = $1")
+                .bind(&v.id)
+                .execute(pool)
+                .await?;
+            return Err(FutureAuthError::OtpMaxAttempts);
+        }
+        // Increment attempt counter
+        sqlx::query("UPDATE verification SET attempts = $1 WHERE id = $2")
+            .bind(new_attempts)
+            .bind(&v.id)
+            .execute(pool)
+            .await?;
+        return Err(FutureAuthError::InvalidOtp);
+    }
+
+    // Correct code — delete it (single-use)
     sqlx::query("DELETE FROM verification WHERE id = $1")
         .bind(&v.id)
         .execute(pool)

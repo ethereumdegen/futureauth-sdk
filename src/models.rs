@@ -32,6 +32,7 @@ pub struct Verification {
     pub identifier: String,
     pub code: String,
     pub expires_at: DateTime<Utc>,
+    pub attempts: i32,
     pub created_at: DateTime<Utc>,
 }
 

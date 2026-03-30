@@ -36,8 +36,15 @@ CREATE TABLE IF NOT EXISTS verification (
     identifier TEXT NOT NULL,
     code TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Backfill: add attempts column if table already exists (idempotent)
+DO $$ BEGIN
+    ALTER TABLE verification ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_session_token ON session(token);
 CREATE INDEX IF NOT EXISTS idx_session_user ON session(user_id);

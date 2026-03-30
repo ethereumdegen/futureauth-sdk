@@ -142,6 +142,13 @@ async fn verify_otp(
             )
                 .into_response()
         }
+        Err(crate::FutureAuthError::OtpMaxAttempts) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ErrorResponse {
+                error: "Too many failed attempts, please request a new code".into(),
+            }),
+        )
+            .into_response(),
         Err(crate::FutureAuthError::InvalidOtp | crate::FutureAuthError::OtpExpired) => (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
