@@ -10,9 +10,16 @@ CREATE TABLE IF NOT EXISTS "user" (
     name TEXT NOT NULL DEFAULT '',
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     phone_number_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    metadata JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Backfill: add metadata column if table already exists (idempotent)
+DO $$ BEGIN
+    ALTER TABLE "user" ADD COLUMN metadata JSONB NOT NULL DEFAULT '{}';
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS session (
     id TEXT PRIMARY KEY,

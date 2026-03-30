@@ -117,6 +117,26 @@ impl FutureAuth {
     pub async fn get_user_by_phone(&self, phone: &str) -> Result<Option<User>> {
         db::user::find_by_phone(&self.pool, phone).await
     }
+
+    /// Update a user's name.
+    pub async fn update_user_name(&self, user_id: &str, name: &str) -> Result<User> {
+        db::user::update_name(&self.pool, user_id, name).await
+    }
+
+    /// Replace the user's metadata entirely.
+    pub async fn set_user_metadata(&self, user_id: &str, metadata: serde_json::Value) -> Result<User> {
+        db::user::set_metadata(&self.pool, user_id, metadata).await
+    }
+
+    /// Merge keys into the user's metadata (shallow merge, new keys override existing).
+    pub async fn merge_user_metadata(&self, user_id: &str, patch: serde_json::Value) -> Result<User> {
+        db::user::merge_metadata(&self.pool, user_id, patch).await
+    }
+
+    /// Get a reference to the underlying database pool.
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
 }
 
 fn generate_otp(length: usize) -> String {

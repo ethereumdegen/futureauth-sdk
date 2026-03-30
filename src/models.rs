@@ -10,6 +10,7 @@ pub struct User {
     pub name: String,
     pub email_verified: bool,
     pub phone_number_verified: bool,
+    pub metadata: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

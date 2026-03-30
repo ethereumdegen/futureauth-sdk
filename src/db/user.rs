@@ -51,6 +51,42 @@ pub async fn find_or_create_by_email(pool: &PgPool, email: &str) -> Result<User>
     Ok(user)
 }
 
+pub async fn update_name(pool: &PgPool, user_id: &str, name: &str) -> Result<User> {
+    let user = sqlx::query_as::<_, User>(
+        r#"UPDATE "user" SET name = $2, updated_at = NOW() WHERE id = $1 RETURNING *"#,
+    )
+    .bind(user_id)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(crate::FutureAuthError::UserNotFound)?;
+    Ok(user)
+}
+
+pub async fn set_metadata(pool: &PgPool, user_id: &str, metadata: serde_json::Value) -> Result<User> {
+    let user = sqlx::query_as::<_, User>(
+        r#"UPDATE "user" SET metadata = $2, updated_at = NOW() WHERE id = $1 RETURNING *"#,
+    )
+    .bind(user_id)
+    .bind(metadata)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(crate::FutureAuthError::UserNotFound)?;
+    Ok(user)
+}
+
+pub async fn merge_metadata(pool: &PgPool, user_id: &str, patch: serde_json::Value) -> Result<User> {
+    let user = sqlx::query_as::<_, User>(
+        r#"UPDATE "user" SET metadata = metadata || $2, updated_at = NOW() WHERE id = $1 RETURNING *"#,
+    )
+    .bind(user_id)
+    .bind(patch)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(crate::FutureAuthError::UserNotFound)?;
+    Ok(user)
+}
+
 pub async fn find_or_create_by_phone(pool: &PgPool, phone: &str) -> Result<User> {
     if let Some(user) = find_by_phone(pool, phone).await? {
         if !user.phone_number_verified {

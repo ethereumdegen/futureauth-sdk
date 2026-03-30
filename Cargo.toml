@@ -1,6 +1,6 @@
 [package]
 name = "futureauth"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "OTP authentication SDK — local session management with FutureAuth OTP delivery"
 license = "MIT"
