@@ -53,6 +53,14 @@ CREATE INDEX IF NOT EXISTS idx_user_phone ON "user"(phone_number);
 CREATE INDEX IF NOT EXISTS idx_verification_identifier ON verification(identifier);
 "#;
 
+/// Returns the SQL needed to create all FutureAuth tables.
+///
+/// Useful if you manage migrations yourself (e.g. with sqlx-cli or refinery)
+/// and want to include FutureAuth's schema in your own migration files.
+pub fn migration_sql() -> &'static str {
+    SCHEMA
+}
+
 pub async fn ensure_tables(pool: &PgPool) -> Result<()> {
     sqlx::raw_sql(SCHEMA).execute(pool).await?;
     tracing::info!("futureauth: auth tables ready");

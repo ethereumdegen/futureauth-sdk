@@ -16,6 +16,22 @@ pub use config::FutureAuthConfig;
 pub use error::{Result, FutureAuthError};
 pub use models::{OtpChannel, Session, User};
 
+/// Create all FutureAuth tables if they don't exist. Only needs a database pool — no config required.
+///
+/// This is the standalone version of [`FutureAuth::ensure_tables`] for use in migration scripts
+/// or startup code where you don't have (or need) a full [`FutureAuth`] instance.
+pub async fn ensure_tables(pool: &PgPool) -> Result<()> {
+    db::migrations::ensure_tables(pool).await
+}
+
+/// Returns the raw SQL needed to create all FutureAuth tables.
+///
+/// Use this if you manage migrations yourself and want to copy FutureAuth's schema
+/// into your own migration files.
+pub fn migration_sql() -> &'static str {
+    db::migrations::migration_sql()
+}
+
 pub struct FutureAuth {
     pub pool: PgPool,
     pub config: FutureAuthConfig,
