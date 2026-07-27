@@ -1,0 +1,243 @@
+pub mod config;
+pub mod error;
+pub mod hashing;
+pub mod models;
+pub mod client;
+pub mod db;
+
+#[cfg(feature = "axum-integration")]
+pub mod axum;
+
+use std::sync::Arc;
+
+use rand::Rng;
+use sqlx::PgPool;
+
+pub use config::FutureAuthConfig;
+pub use error::{Result, FutureAuthError};
+pub use models::{OtpChannel, Session, User};
+
+/// Create all FutureAuth tables if they don't exist. Only needs a database pool — no config required.
+///
+/// This is the standalone version of [`FutureAuth::ensure_tables`] for use in migration scripts
+/// or startup code where you don't have (or need) a full [`FutureAuth`] instance.
+pub async fn ensure_tables(pool: &PgPool) -> Result<()> {
+    db::migrations::ensure_tables(pool).await
+}
+
+/// Returns the raw SQL needed to create all FutureAuth tables.
+///
+/// Use this if you manage migrations yourself and want to copy FutureAuth's schema
+/// into your own migration files.
+pub fn migration_sql() -> &'static str {
+    db::migrations::migration_sql()
+}
+
+pub struct FutureAuth {
+    pub pool: PgPool,
+    pub config: FutureAuthConfig,
+    http: reqwest::Client,
+}
+
+impl FutureAuth {
+    pub fn new(pool: PgPool, config: FutureAuthConfig) -> Arc<Self> {
+        Arc::new(Self {
+            pool,
+            config,
+            http: reqwest::Client::new(),
+        })
+    }
+
+    /// Create auth tables if they don't exist. Safe to call on every startup.
+    pub async fn ensure_tables(&self) -> Result<()> {
+        db::migrations::ensure_tables(&self.pool).await
+    }
+
+    /// Generate a random OTP code, store it locally, and send it via FutureAuth.
+    pub async fn send_otp(&self, channel: OtpChannel, destination: &str) -> Result<()> {
+        let code = generate_otp(self.config.otp_length);
+
+        // Store verification locally
+        db::verification::create(&self.pool, destination, &code, self.config.otp_ttl).await?;
+
+        // Send via FutureAuth API
+        client::send_otp(&self.http, &self.config, channel, destination, &code).await?;
+
+        tracing::info!("OTP sent to {destination} via {channel:?}");
+        Ok(())
+    }
+
+    /// Store an externally-generated OTP code in the verification table.
+    ///
+    /// Use this when you generate the code yourself (e.g. because this server
+    /// is also the delivery service) and only need the SDK to handle storage
+    /// and later verification. The code is hashed before persistence.
+    pub async fn store_otp(
+        &self,
+        identifier: &str,
+        code: &str,
+        ttl: std::time::Duration,
+    ) -> Result<()> {
+        db::verification::create(&self.pool, identifier, code, ttl).await?;
+        Ok(())
+    }
+
+    /// Store an externally-generated magic-link token in the verification
+    /// table. Same rationale as [`store_otp`](Self::store_otp).
+    pub async fn store_magic_link(
+        &self,
+        identifier: &str,
+        token: &str,
+        ttl: std::time::Duration,
+    ) -> Result<()> {
+        db::verification::create_magic_link(&self.pool, identifier, token, ttl).await?;
+        Ok(())
+    }
+
+    /// Verify an OTP code. On success, creates/finds the user and creates a session.
+    pub async fn verify_otp(
+        &self,
+        identifier: &str,
+        code: &str,
+        ip_address: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> Result<(User, Session)> {
+        // Verify the code locally
+        db::verification::verify(&self.pool, identifier, code).await?;
+
+        // Create or find user
+        let user = if identifier.contains('@') {
+            db::user::find_or_create_by_email(&self.pool, identifier).await?
+        } else {
+            db::user::find_or_create_by_phone(&self.pool, identifier).await?
+        };
+
+        // Create session
+        let session = db::session::create(
+            &self.pool,
+            &user.id,
+            self.config.session_ttl,
+            ip_address,
+            user_agent,
+        )
+        .await?;
+
+        Ok((user, session))
+    }
+
+    /// Validate a session token. Returns the user and session if valid.
+    pub async fn get_session(&self, token: &str) -> Result<Option<(User, Session)>> {
+        db::session::find_by_token(&self.pool, token).await
+    }
+
+    /// Revoke a single session.
+    pub async fn revoke_session(&self, token: &str) -> Result<()> {
+        db::session::revoke(&self.pool, token).await
+    }
+
+    /// Revoke all sessions for a user.
+    pub async fn revoke_all_sessions(&self, user_id: &str) -> Result<()> {
+        db::session::revoke_all_for_user(&self.pool, user_id).await
+    }
+
+    /// Generate a magic link token, store it locally, and send it via FutureAuth.
+    /// The callback URL is configured per-project in the FutureAuth dashboard.
+    pub async fn send_magic_link(&self, destination: &str) -> Result<()> {
+        let token = nanoid::nanoid!(48);
+
+        // Store verification locally
+        db::verification::create_magic_link(
+            &self.pool,
+            destination,
+            &token,
+            self.config.magic_link_ttl,
+        )
+        .await?;
+
+        // Send via FutureAuth API (server uses project's callback_url)
+        client::send_magic_link(&self.http, &self.config, destination, &token).await?;
+
+        tracing::info!("Magic link sent to {destination}");
+        Ok(())
+    }
+
+    /// Verify a magic link token. On success, creates/finds the user and creates a session.
+    pub async fn verify_magic_link(
+        &self,
+        token: &str,
+        ip_address: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> Result<(User, Session)> {
+        // Verify the token locally — returns the identifier (email)
+        let identifier = db::verification::verify_magic_link(&self.pool, token).await?;
+
+        // Create or find user
+        let user = if identifier.contains('@') {
+            db::user::find_or_create_by_email(&self.pool, &identifier).await?
+        } else {
+            db::user::find_or_create_by_phone(&self.pool, &identifier).await?
+        };
+
+        // Create session
+        let session = db::session::create(
+            &self.pool,
+            &user.id,
+            self.config.session_ttl,
+            ip_address,
+            user_agent,
+        )
+        .await?;
+
+        Ok((user, session))
+    }
+
+    /// Clean up expired sessions and verification codes.
+    pub async fn cleanup_expired(&self) -> Result<(u64, u64)> {
+        let sessions = db::session::cleanup_expired(&self.pool).await?;
+        let verifications = db::verification::cleanup_expired(&self.pool).await?;
+        Ok((sessions, verifications))
+    }
+
+    /// Look up a user by ID.
+    pub async fn get_user(&self, id: &str) -> Result<Option<User>> {
+        db::user::find_by_id(&self.pool, id).await
+    }
+
+    /// Look up a user by email.
+    pub async fn get_user_by_email(&self, email: &str) -> Result<Option<User>> {
+        db::user::find_by_email(&self.pool, email).await
+    }
+
+    /// Look up a user by phone number.
+    pub async fn get_user_by_phone(&self, phone: &str) -> Result<Option<User>> {
+        db::user::find_by_phone(&self.pool, phone).await
+    }
+
+    /// Update a user's name.
+    pub async fn update_user_name(&self, user_id: &str, name: &str) -> Result<User> {
+        db::user::update_name(&self.pool, user_id, name).await
+    }
+
+    /// Replace the user's metadata entirely.
+    pub async fn set_user_metadata(&self, user_id: &str, metadata: serde_json::Value) -> Result<User> {
+        db::user::set_metadata(&self.pool, user_id, metadata).await
+    }
+
+    /// Merge keys into the user's metadata (shallow merge, new keys override existing).
+    pub async fn merge_user_metadata(&self, user_id: &str, patch: serde_json::Value) -> Result<User> {
+        db::user::merge_metadata(&self.pool, user_id, patch).await
+    }
+
+    /// Get a reference to the underlying database pool.
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+}
+
+fn generate_otp(length: usize) -> String {
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut rng = rand::thread_rng();
+    (0..length)
+        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .collect()
+}
